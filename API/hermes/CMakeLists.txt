@@ -8,18 +8,19 @@ set(api_sources
   hermes_napi.cpp
   DebuggerAPI.cpp
   MurmurHash.cpp
+  hermes_win.cpp
   )
 
-if (WIN32)
-  list(APPEND api_sources hermes_win.cpp)
-endif()
+# if (WIN32)
+#   list(APPEND api_sources hermes_win.cpp)
+# endif()
 
 file(GLOB api_headers ${CMAKE_CURRENT_SOURCE_DIR}/*.h)
 file(GLOB api_public_headers ${PROJECT_SOURCE_DIR}/public/hermes/Public/*.h)
 
 add_hermes_library(hermesapi
         ${api_sources}
-        LINK_LIBS jsi hermesVMRuntime hermesNapi hermesinspector)
+        LINK_LIBS jsi hermesVMRuntime hermesNapi)
 target_include_directories(hermesapi PUBLIC .. ${REACT_NATIVE_SOURCE}/ReactCommon)
 
 add_hermes_library(hermesapiLean
@@ -70,7 +71,6 @@ target_link_libraries(libhermes
   PRIVATE
   jsi
   hermesNapi
-  hermesinspector
   ${LIBHERMES_VM_DEP}
 )
 target_link_options(libhermes PRIVATE ${HERMES_EXTRA_LINKER_FLAGS})

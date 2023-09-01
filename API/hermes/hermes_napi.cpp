@@ -106,6 +106,18 @@
     }                                           \
   } while (false)
 
+#ifdef __APPLE__
+
+// Crash if the condition is false.
+#define CRASH_IF_FALSE(condition) \
+  do {                             \
+    if (!(condition)) {            \
+      std::terminate();            \
+    }                              \
+  } while (false)
+
+#else
+
 // Crash if the condition is false.
 #define CRASH_IF_FALSE(condition)  \
   do {                             \
@@ -115,6 +127,8 @@
       std::terminate();            \
     }                              \
   } while (false)
+
+#endif
 
 // Return error status with message.
 #define ERROR_STATUS(status, ...) \
@@ -209,7 +223,12 @@ union HermesBuildVersionInfo {
   uint64_t version;
 };
 
-constexpr HermesBuildVersionInfo HermesBuildVersion = {HERMES_FILE_VERSION_BIN};
+#ifdef __APPLE__
+#undef HERMES_FILE_VERSION_BIN
+#define HERMES_FILE_VERSION_BIN 0,0,0,0
+#endif
+
+constexpr HermesBuildVersionInfo HermesBuildVersion = {{HERMES_FILE_VERSION_BIN}};
 
 //=============================================================================
 // Forward declaration of all classes.
@@ -2218,7 +2237,7 @@ class NapiComplexReference : public NapiReference {
     }
     if (--refCount_ == 0) {
       if (value_.isObject()) {
-        weakRoot_ = env.createWeakRoot(getObjectUnsafe(value_));
+        weakRoot_ = std::move(env.createWeakRoot(getObjectUnsafe(value_)));
       } else {
         weakRoot_ = vm::WeakRoot<vm::JSObject>{};
       }
@@ -2297,7 +2316,7 @@ class NapiFinalizeCallbackHolder : public TBaseReference {
     if (finalizeCallback_) {
       napi_finalize finalizeCallback =
           std::exchange(finalizeCallback_, nullptr);
-      env.callFinalizer(finalizeCallback, nativeData(), finalizeHint());
+      env.callFinalizer(finalizeCallback, this->nativeData(), this->finalizeHint());
     }
     return napi_ok;
   }
@@ -2331,7 +2350,7 @@ class NapiFinalizingReference final : public TBaseReference {
       : TBaseReference(std::forward<TArgs>(args)...) {}
 
   void finalize(NapiEnvironment &env) noexcept override {
-    callFinalizeCallback(env);
+    this->callFinalizeCallback(env);
     NapiReference::deleteReference(
         env, this, NapiReference::ReasonToDelete::FinalizerCall);
   }
@@ -3107,8 +3126,8 @@ NapiEnvironment::NapiEnvironment(
     std::shared_ptr<facebook::jsi::PreparedScriptStore> scriptCache,
     const vm::RuntimeConfig &runtimeConfig) noexcept
     : runtime_(runtime),
-      isInspectable_(isInspectable),
-      scriptCache_(std::move(scriptCache)) {
+      scriptCache_(std::move(scriptCache)),
+      isInspectable_(isInspectable) {
   switch (runtimeConfig.getCompilationMode()) {
     case vm::SmartCompilation:
       compileFlags_.lazy = true;
@@ -6378,7 +6397,7 @@ napi_status NapiEnvironment::createPreparedScript(
 
     if (scriptCache_) {
       uint64_t hash{};
-      bool isAscii = murmurhash(buffer->data(), buffer->size(), /*ref*/ hash);
+      murmurhash(buffer->data(), buffer->size(), /*ref*/ hash);
       facebook::jsi::JSRuntimeVersion_t runtimeVersion =
           HermesBuildVersion.version;
       scriptSignature = {std::string(sourceURL ? sourceURL : ""), hash};
@@ -6390,7 +6409,7 @@ napi_status NapiEnvironment::createPreparedScript(
       cache = scriptCache_->tryGetPreparedScript(
           scriptSignature, runtimeSignature, prepareTag);
       bcErr = hbc::BCProviderFromBuffer::createBCProviderFromBuffer(
-          std::make_unique<JsiBuffer>(move(cache)));
+          std::make_unique<JsiBuffer>(std::move(cache)));
     }
 
     hbc::BCProviderFromSrc *bytecodeProviderFromSrc{};

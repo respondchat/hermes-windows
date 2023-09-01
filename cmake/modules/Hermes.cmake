@@ -90,10 +90,10 @@ function(hermes_update_compile_flags name)
 
   #if (MSVC)
     # enable function-level linking
-    set(flags "${flags} /Gy")
+    # set(flags "${flags} /Gy")
     
     # Ensure debug symbols are generated for all sources.
-    set(flags "${flags} /Zi")
+    # set(flags "${flags} /Zi")
   #endif ()
 
   if (HERMES_ENABLE_EH)

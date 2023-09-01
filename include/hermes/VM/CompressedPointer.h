@@ -92,6 +92,8 @@ class CompressedPointer {
   CompressedPointer &operator=(const CompressedPointer &) = default;
 #endif
 
+  CompressedPointer &operator=(CompressedPointer &&) = default;
+
  protected:
   void setNoBarrier(CompressedPointer cp) {
     ptr_ = cp.ptr_;
