@@ -20,6 +20,8 @@
 #include <jsi/jsi.h>
 #include <unordered_map>
 
+#include "js_native_api.h"
+
 struct HermesTestHelper;
 
 namespace hermes {
@@ -81,6 +83,8 @@ class HERMES_EXPORT HermesRuntime : public jsi::Runtime {
 
   /// Dump sampled stack trace to the given stream.
   static void dumpSampledTraceToStream(std::ostream &stream);
+
+  napi_status createNapiEnv(napi_env *env);
 
   /// Serialize the sampled stack to the format expected by DevTools'
   /// Profiler.stop return type.
