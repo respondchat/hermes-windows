@@ -4912,7 +4912,13 @@ napi_status NapiEnvironment::getPredefinedProperty(
     TObject object,
     NapiPredefined key,
     napi_value *result) noexcept {
-  return getNamedProperty(object, getPredefinedSymbol(key), result);
+  vm::SymbolID symbol = getPredefinedSymbol(key);
+  vm::NamedPropertyDescriptor desc;
+  bool hasOwned = vm::JSObject::getOwnNamedDescriptor(makeHandle<vm::JSObject>(object), runtime_, symbol, desc);
+  if (!hasOwned) {
+    return getUndefined(result);
+  }
+  return getNamedProperty(object, symbol, result);
 }
 
 template <class TObject, class TValue>
