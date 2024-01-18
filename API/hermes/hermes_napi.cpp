@@ -71,6 +71,7 @@
 #include "MurmurHash.h"
 #include "ScriptStore.h"
 #include "hermes_api.h"
+#include <iostream>
 
 #include "hermes/BCGen/HBC/BytecodeProviderFromSrc.h"
 #include "hermes/DebuggerAPI.h"
@@ -4912,9 +4913,16 @@ napi_status NapiEnvironment::getPredefinedProperty(
     TObject object,
     NapiPredefined key,
     napi_value *result) noexcept {
+  auto jsObjectInit = makeHandle<vm::JSObject>(object);
+  auto jsObject = jsObjectInit->isProxyObject()
+                    ? makeHandle<vm::JSObject>(
+                        vm::JSProxy::getTarget(
+                            vmcast<vm::JSObject>(*jsObjectInit), runtime_))
+                    : jsObjectInit;
+  
   vm::SymbolID symbol = getPredefinedSymbol(key);
   vm::NamedPropertyDescriptor desc;
-  bool hasOwned = vm::JSObject::getOwnNamedDescriptor(makeHandle<vm::JSObject>(object), runtime_, symbol, desc);
+  bool hasOwned = vm::JSObject::getOwnNamedDescriptor(jsObject, runtime_, symbol, desc);
   if (!hasOwned) {
     return getUndefined(result);
   }
