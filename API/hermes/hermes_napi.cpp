@@ -272,6 +272,7 @@ class NapiNativeDataHolder;
 class NapiReference;
 class NapiStrongReference;
 class NapiWeakReference;
+class ThreadsafeFunction;
 
 using NapiNativeError = napi_extended_error_info;
 
@@ -1385,6 +1386,11 @@ class NapiEnvironment final {
   napi_status isDetachedArrayBuffer(
       napi_value arrayBuffer,
       bool *result) noexcept;
+
+  napi_status createBuffer(
+      size_t length,
+      void** data,
+      napi_value *result) noexcept;
 
   // Exported function to create JS TypedArray object instance for the
   // arrayBuffer. The TypedArray is an array-like view of an underlying binary
@@ -5799,6 +5805,23 @@ napi_status NapiEnvironment::createTypedArray(
   return clearLastNativeError();
 }
 
+napi_status NapiEnvironment::createBuffer(
+	size_t length,
+	void** data,
+	napi_value *result
+) noexcept {
+	napi_value arrayBuffer;
+	CHECK_NAPI(createArrayBuffer(length, data, &arrayBuffer));
+
+	return createTypedArray(
+		napi_uint8_array,
+		length,
+		arrayBuffer,
+		0,
+		result
+	);
+}
+
 napi_status NapiEnvironment::createTypedArray(
     napi_typedarray_type type,
     size_t length,
@@ -6153,6 +6176,115 @@ napi_status NapiEnvironment::isPromise(
       global, NapiPredefined::Promise, &promiseConstructor));
 
   return isInstanceOf(value, promiseConstructor, result);
+}
+
+class ThreadsafeFunction {
+public:
+	ThreadsafeFunction(
+		napi_value env,
+		napi_value func,
+		napi_value async_resource,
+		napi_value async_resource_name,
+		size_t max_queue_size,
+		size_t initial_thread_count,
+		void *thread_finalize_data,
+		napi_finalize thread_finalize_cb,
+		void *context,
+		napi_threadsafe_function_call_js call_js_cb)
+		: func_(env, func),
+			asyncResource_(env, async_resource),
+			asyncResourceName_(env, async_resource_name),
+			maxQueueSize_(max_queue_size),
+			initialThreadCount_(initial_thread_count),
+			threadFinalizeData_(thread_finalize_data),
+			threadFinalizeCb_(thread_finalize_cb),
+			context_(context),
+			callJsCb_(call_js_cb) {}
+
+	void Ref() {  }
+
+	void Unref() {  }
+
+	void* getContext() { 
+		return context_;
+	}
+
+	napi_threadsafe_function get() { 
+		return &this;
+	}
+
+	napi_status callFunction(void* data, napi_threadsafe_function_call_mode is_blocking) {
+
+		vm::Runtime *runtime = reinterpret_cast<vm::Runtime *>(env_);
+
+		runtime->enqueueJob([this, data, is_blocking]() {
+
+
+			if (callJsCb_ != nullptr) {
+				callJsCb_(env_, func_, context_, data,);
+			} else {
+				napi_value recv = nullptr;
+				napi_call_function(env_, recv, func_, 0, nullptr, nullptr);
+			}
+
+		});
+
+		return napi_ok;
+	}
+
+private:
+	napi_env env_;
+	NapiValue func_;
+	NapiValue asyncResource_;
+	NapiValue asyncResourceName_;
+	size_t maxQueueSize_;
+	size_t initialThreadCount_;
+	void *threadFinalizeData_;
+	napi_finalize threadFinalizeCb_;
+	void *context_;
+	napi_threadsafe_function_call_js callJsCb_;
+	napi_threadsafe_function tsfn_;
+};
+
+ThreadsafeFunction *asReference(void *ref) noexcept {
+  return reinterpret_cast<ThreadsafeFunction *>(ref);
+}
+
+napi_status NapiEnvironment::createThreadsafeFunction(
+	napi_env env,
+    napi_value func,
+    napi_value async_resource,
+    napi_value async_resource_name,
+    size_t max_queue_size,
+    size_t initial_thread_count,
+    void* thread_finalize_data,
+    napi_finalize thread_finalize_cb,
+	void* context,
+    napi_threadsafe_function_call_js call_js_cb,
+    napi_threadsafe_function* result) {
+  
+	if (env == nullptr || func == nullptr || call_js_cb == nullptr || result == nullptr) {
+		return napi_invalid_arg;
+	}
+
+	auto ts_fn = std::make_shared<ThreadsafeFunction>(
+		env,
+		func,
+		async_resource,
+		async_resource_name,
+		max_queue_size,
+		initial_thread_count,
+		thread_finalize_data,
+		thread_finalize_cb,
+		call_js_cb);
+	
+	if (!ts_fn) {
+		return napi_generic_failure;
+	}
+
+	*result = ts_fn->get();	
+
+	return napi_ok;
 }
 
 napi_status NapiEnvironment::enablePromiseRejectionTracker() noexcept {
@@ -7347,6 +7479,47 @@ napi_is_typedarray(napi_env env, napi_value value, bool *result) {
   return CHECKED_ENV(env)->isTypedArray(value, result);
 }
 
+napi_status NAPI_CDECL napi_fatal_error(const char* location,
+	size_t location_len,
+	const char* message,
+	size_t message_len) {
+	throw std::runtime_error("Fatal error: " + std::string(message, message_len));
+}
+
+napi_status NAPI_CDECL napi_is_buffer(
+    napi_env env,
+    napi_value value,
+    bool *result) {
+  return CHECKED_ENV(env)->isTypedArray(value, result);
+}
+
+napi_status NAPI_CDECL napi_create_buffer(
+    napi_env env,
+    size_t length,
+    void **data,
+    napi_value *result) {
+  return CHECKED_ENV(env)->createBuffer(length, data, result);
+}
+
+napi_status NAPI_CDECL napi_get_buffer_info(
+	napi_env env,
+	napi_value value,
+	void** data,
+	size_t* length) {
+	napi_typedarray_type type = napi_uint8_array;
+	return CHECKED_ENV(env)->getTypedArrayInfo(value, &type, length, data, nullptr, 0);
+}
+
+napi_status NAPI_CDECL napi_create_external_buffer(
+	napi_env env,
+	size_t length,
+	void *data,
+	napi_finalize finalize_cb,
+	void *finalize_hint,
+	napi_value *result) {
+  return CHECKED_ENV(env)->createExternalArrayBuffer(data, length, finalize_cb, finalize_hint, result);
+}
+
 napi_status NAPI_CDECL napi_create_typedarray(
     napi_env env,
     napi_typedarray_type type,
@@ -7433,6 +7606,82 @@ napi_status NAPI_CDECL
 napi_is_promise(napi_env env, napi_value value, bool *is_promise) {
   return CHECKED_ENV(env)->isPromise(value, is_promise);
 }
+
+napi_status NAPI_CDECL
+napi_create_threadsafe_function(
+	napi_env env,
+	napi_value func,
+	napi_value async_resource,
+	napi_value async_resource_name,
+	size_t max_queue_size,
+	size_t initial_thread_count,
+	void* thread_finalize_data,
+	napi_finalize thread_finalize_cb,
+	void* context,
+	napi_threadsafe_function_call_js call_js_cb,
+	napi_threadsafe_function* result) {
+
+	return CHECKED_ENV(env)->createThreadsafeFunction(
+		env,
+		func,
+		async_resource,
+		async_resource_name,
+		max_queue_size,
+		initial_thread_count,
+		thread_finalize_data,
+		thread_finalize_cb,
+		context,
+		call_js_cb,
+		result);
+}
+
+napi_status NAPI_CDECL
+napi_get_threadsafe_function_context(
+	napi_env env,
+	napi_threadsafe_function func,
+	void** result) {
+
+	hermes::vm::ThreadsafeFunction* f = hermes::vm::ThreadsafeFunction::asReference(func);
+
+	*result = f->getContext();
+
+	return napi_ok;
+}
+
+napi_status NAPI_CDECL
+napi_call_threadsafe_function(
+	napi_threadsafe_function func,
+	void* data,
+	napi_threadsafe_function_call_mode is_blocking) {
+
+	hermes::vm::ThreadsafeFunction* f = hermes::vm::ThreadsafeFunction::asReference(func);
+
+	return f->callFunction(func, data, is_blocking)
+}
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_acquire_threadsafe_function(
+	napi_threadsafe_function func) {
+	return napi_ok;
+}
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_release_threadsafe_function(
+	napi_threadsafe_function func,
+	napi_threadsafe_function_release_mode mode) {
+	return napi_ok;
+}
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_ref_threadsafe_function(napi_env env, napi_threadsafe_function func) {
+	return napi_ok;
+}
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_unref_threadsafe_function(napi_env env, napi_threadsafe_function func) {
+	return napi_ok;
+}
+
 
 //-----------------------------------------------------------------------------
 // Running a script

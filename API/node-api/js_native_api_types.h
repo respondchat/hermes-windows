@@ -28,6 +28,7 @@ typedef struct napi_handle_scope__* napi_handle_scope;
 typedef struct napi_escapable_handle_scope__* napi_escapable_handle_scope;
 typedef struct napi_callback_info__* napi_callback_info;
 typedef struct napi_deferred__* napi_deferred;
+typedef struct napi_threadsafe_function__* napi_threadsafe_function;
 
 typedef enum {
   napi_default = 0,
@@ -115,6 +116,11 @@ typedef void(NAPI_CDECL* napi_finalize)(napi_env env,
                                         void* finalize_data,
                                         void* finalize_hint);
 
+typedef void (NAPI_CDECL* napi_threadsafe_function_call_js)(napi_env env,
+										napi_value js_callback,
+										void* context,
+										void* data); 
+
 typedef struct {
   // One of utf8name or name should be NULL.
   const char* utf8name;
@@ -156,6 +162,21 @@ typedef enum {
   napi_key_numbers_to_strings
 } napi_key_conversion;
 #endif  // NAPI_VERSION >= 6
+
+typedef enum {
+  napi_tsfn_nonblocking,
+  napi_tsfn_blocking
+} napi_threadsafe_function_call_mode;
+
+typedef enum {
+  napi_tsfn_release,
+  napi_tsfn_abort
+} napi_threadsafe_function_release_mode; 
+
+typedef enum {
+  napi_tsfn_release,
+  napi_tsfn_abort
+} napi_threadsafe_function_release_mode;
 
 #if NAPI_VERSION >= 8
 typedef struct {

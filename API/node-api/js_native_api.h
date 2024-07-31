@@ -427,6 +427,36 @@ napi_get_dataview_info(napi_env env,
                        napi_value* arraybuffer,
                        size_t* byte_offset);
 
+NAPI_EXTERN napi_status NAPI_CDECL napi_fatal_error(const char* location,
+	size_t location_len,
+	const char* message,
+	size_t message_len);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_is_buffer(
+    napi_env env,
+    napi_value value,
+    bool *result);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_create_buffer(
+    napi_env env,
+    size_t length,
+    void **data,
+    napi_value *result);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_get_buffer_info(
+	napi_env env,
+	napi_value value,
+	void** data,
+	size_t* length);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_create_external_buffer(
+	napi_env env,
+	size_t length,
+	void *data,
+	napi_finalize finalize_cb,
+	void *finalize_hint,
+	napi_value *result);
+
 // version management
 NAPI_EXTERN napi_status NAPI_CDECL napi_get_version(napi_env env,
                                                     uint32_t* result);
@@ -444,6 +474,41 @@ NAPI_EXTERN napi_status NAPI_CDECL napi_reject_deferred(napi_env env,
 NAPI_EXTERN napi_status NAPI_CDECL napi_is_promise(napi_env env,
                                                    napi_value value,
                                                    bool* is_promise);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_create_threadsafe_function(
+	napi_env env,
+	napi_value func,
+	napi_value async_resource,
+	napi_value async_resource_name,
+	size_t max_queue_size,
+	size_t initial_thread_count,
+	void* thread_finalize_data,
+	napi_finalize thread_finalize_cb,
+	void* context,
+	napi_threadsafe_function_call_js call_js_cb,
+	napi_threadsafe_function* result);
+
+NAPI_EXTERN napi_status NAPI_CDECL 
+napi_get_threadsafe_function_context(napi_threadsafe_function func,
+                                     void** result); 
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_call_threadsafe_function(napi_threadsafe_function func,
+                              void* data,
+                              napi_threadsafe_function_call_mode is_blocking);
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_acquire_threadsafe_function(napi_threadsafe_function func); 
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_release_threadsafe_function(napi_threadsafe_function func,
+                                 napi_threadsafe_function_release_mode mode); 
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_ref_threadsafe_function(napi_env env, napi_threadsafe_function func); 
+
+NAPI_EXTERN napi_status NAPI_CDECL
+napi_unref_threadsafe_function(napi_env env, napi_threadsafe_function func); 
 
 // Running a script
 NAPI_EXTERN napi_status NAPI_CDECL napi_run_script(napi_env env,

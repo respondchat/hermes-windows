@@ -35,3 +35,16 @@ android/intltest/java/com/facebook/hermes/test/assets/**
 # VS Code and Visual Studio
 .vs
 .vscode
+
+
+CMakeFiles
+*.cmake
+Makefile
+hermes.framework
+bin
+CMakeCache.txt
+compile_commands.json
+InternalBytecode
+*.a
+
+external/llvh/include/llvh/Config
