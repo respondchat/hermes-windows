@@ -475,6 +475,23 @@ NAPI_EXTERN napi_status NAPI_CDECL napi_is_promise(napi_env env,
                                                    napi_value value,
                                                    bool* is_promise);
 
+NAPI_EXTERN napi_status NAPI_CDECL napi_create_async_work(
+	napi_env env,
+	napi_value async_resource,
+	napi_value async_resource_name,
+	napi_async_execute_callback execute,
+	napi_async_complete_callback complete,
+	void* data,
+	napi_async_work* result);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_delete_async_work(
+	napi_env env,
+	napi_async_work work);
+
+NAPI_EXTERN napi_status NAPI_CDECL napi_queue_async_work(
+	napi_env env,
+	napi_async_work work);
+
 NAPI_EXTERN napi_status NAPI_CDECL napi_create_threadsafe_function(
 	napi_env env,
 	napi_value func,

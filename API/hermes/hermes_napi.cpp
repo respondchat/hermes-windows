@@ -1497,6 +1497,19 @@ class NapiEnvironment final {
   // Internal function to enable Promise rejection tracker.
   napi_status enablePromiseRejectionTracker() noexcept;
 
+  napi_status createThreadsafeFunction(
+	napi_env env,
+    napi_value func,
+    napi_value async_resource,
+    napi_value async_resource_name,
+    size_t max_queue_size,
+    size_t initial_thread_count,
+    void* thread_finalize_data,
+    napi_finalize thread_finalize_cb,
+	void* context,
+    napi_threadsafe_function_call_js call_js_cb,
+    napi_threadsafe_function* result) noexcept;
+
   // Internal callback to handle Promise rejection notifications.
   static vm::CallResult<vm::HermesValue> handleRejectionNotification(
       void *context,
@@ -6181,7 +6194,7 @@ napi_status NapiEnvironment::isPromise(
 class ThreadsafeFunction {
 public:
 	ThreadsafeFunction(
-		napi_value env,
+		napi_env env,
 		napi_value func,
 		napi_value async_resource,
 		napi_value async_resource_name,
@@ -6190,16 +6203,18 @@ public:
 		void *thread_finalize_data,
 		napi_finalize thread_finalize_cb,
 		void *context,
-		napi_threadsafe_function_call_js call_js_cb)
-		: func_(env, func),
-			asyncResource_(env, async_resource),
-			asyncResourceName_(env, async_resource_name),
-			maxQueueSize_(max_queue_size),
-			initialThreadCount_(initial_thread_count),
-			threadFinalizeData_(thread_finalize_data),
-			threadFinalizeCb_(thread_finalize_cb),
-			context_(context),
-			callJsCb_(call_js_cb) {}
+		napi_threadsafe_function_call_js call_js_cb) {
+		env_ = env;
+		func_ = func;
+		asyncResource_ = async_resource;
+		asyncResourceName_ = async_resource_name;
+		maxQueueSize_ = max_queue_size;
+		initialThreadCount_ = initial_thread_count;
+		threadFinalizeData_ = thread_finalize_data;
+		threadFinalizeCb_ = thread_finalize_cb;
+		context_ = context;
+		callJsCb_ = call_js_cb;
+	}
 
 	void Ref() {  }
 
@@ -6210,45 +6225,81 @@ public:
 	}
 
 	napi_threadsafe_function get() { 
-		return &this;
+		return reinterpret_cast<napi_threadsafe_function>(this);
 	}
 
+	static napi_value Callback(napi_env env, napi_callback_info info) {
+		size_t argc = 1;
+		napi_value args[1];
+		env, napi_get_cb_info(env, info, &argc, args, NULL, NULL);
+
+		auto self = reinterpret_cast<ThreadsafeFunction*>(args[0]);
+
+		if (self->callJsCb_ != nullptr) {
+			self->callJsCb_(self->env_, self->func_, self->context_, self->data);
+		} else {
+			napi_value undefined;
+			napi_get_undefined(self->env_, &undefined);
+
+			napi_call_function(self->env_, undefined, self->func_, 0, nullptr, nullptr);
+		}
+
+		return NULL;
+	}
+    
 	napi_status callFunction(void* data, napi_threadsafe_function_call_mode is_blocking) {
 
-		vm::Runtime *runtime = reinterpret_cast<vm::Runtime *>(env_);
+		vm::Runtime* rt = reinterpret_cast<vm::Runtime*>(env_);
+		facebook::jsi::Runtime& runtime = *reinterpret_cast<facebook::jsi::Runtime*>(env_);
 
-		runtime->enqueueJob([this, data, is_blocking]() {
+		this->data = data;
+    	auto* self = this; // Temporäre Variable, die ein lvalue ist
 
+		// if (self->callJsCb_ != nullptr) {
+		// 	self->callJsCb_(self->env_, self->func_, self->context_, self->data);
+		// } else {
+		// 	napi_value undefined;
+		// 	napi_get_undefined(self->env_, &undefined);
 
-			if (callJsCb_ != nullptr) {
-				callJsCb_(env_, func_, context_, data,);
-			} else {
-				napi_value recv = nullptr;
-				napi_call_function(env_, recv, func_, 0, nullptr, nullptr);
-			}
+		// 	napi_call_function(self->env_, undefined, self->func_, 0, nullptr, nullptr);
+		// }
 
-		});
+		// napi_value callback;
+		// napi_create_function(env_, nullptr, 0, (napi_callback) &ThreadsafeFunction::Callback, (void *) self, &callback);
+
+		// const vm::PinnedHermesValue *pinnedValue = phv(callback);
+		// if (!vm::vmisa<vm::Callable>(*pinnedValue)) return napi_invalid_arg;
+
+		// vm::Handle<vm::Callable> funcHandle = vm::Handle<vm::Callable>::vmcast(pinnedValue);
+
+		// vm::Callable* callable = funcHandle.get();
+
+		// rt->enqueueJob(callable);
+
+		// auto result = rt->drainJobs();
 
 		return napi_ok;
 	}
 
+
+	static ThreadsafeFunction* asReference(void *ref) noexcept {
+		return reinterpret_cast<ThreadsafeFunction *>(ref);
+	}
+
+
 private:
 	napi_env env_;
-	NapiValue func_;
-	NapiValue asyncResource_;
-	NapiValue asyncResourceName_;
+	napi_value func_;
+	napi_value asyncResource_;
+	napi_value asyncResourceName_;
 	size_t maxQueueSize_;
 	size_t initialThreadCount_;
 	void *threadFinalizeData_;
 	napi_finalize threadFinalizeCb_;
 	void *context_;
 	napi_threadsafe_function_call_js callJsCb_;
-	napi_threadsafe_function tsfn_;
+	void *data;
 };
-
-ThreadsafeFunction *asReference(void *ref) noexcept {
-  return reinterpret_cast<ThreadsafeFunction *>(ref);
-}
 
 napi_status NapiEnvironment::createThreadsafeFunction(
 	napi_env env,
@@ -6261,13 +6312,13 @@ napi_status NapiEnvironment::createThreadsafeFunction(
     napi_finalize thread_finalize_cb,
 	void* context,
     napi_threadsafe_function_call_js call_js_cb,
-    napi_threadsafe_function* result) {
+    napi_threadsafe_function* result) noexcept {
   
-	if (env == nullptr || func == nullptr || call_js_cb == nullptr || result == nullptr) {
+	if (env == nullptr || (func == nullptr && call_js_cb == nullptr) || result == nullptr) {
 		return napi_invalid_arg;
 	}
 
-	auto ts_fn = std::make_shared<ThreadsafeFunction>(
+	auto ts_fn = new ThreadsafeFunction(
 		env,
 		func,
 		async_resource,
@@ -6276,6 +6327,7 @@ napi_status NapiEnvironment::createThreadsafeFunction(
 		initial_thread_count,
 		thread_finalize_data,
 		thread_finalize_cb,
+		context,
 		call_js_cb);
 	
 	if (!ts_fn) {
@@ -7607,6 +7659,29 @@ napi_is_promise(napi_env env, napi_value value, bool *is_promise) {
   return CHECKED_ENV(env)->isPromise(value, is_promise);
 }
 
+napi_status NAPI_CDECL napi_create_async_work(
+	napi_env env,
+	napi_value async_resource,
+	napi_value async_resource_name,
+	napi_async_execute_callback execute,
+	napi_async_complete_callback complete,
+	void* data,
+	napi_async_work* result) {
+	return napi_ok;
+}
+
+napi_status NAPI_CDECL napi_delete_async_work(
+	napi_env env,
+	napi_async_work work) {
+	return napi_ok;
+}
+
+napi_status NAPI_CDECL napi_queue_async_work(
+	napi_env env,
+	napi_async_work work) {
+	return napi_ok;
+}
+
 napi_status NAPI_CDECL
 napi_create_threadsafe_function(
 	napi_env env,
@@ -7641,7 +7716,11 @@ napi_get_threadsafe_function_context(
 	napi_threadsafe_function func,
 	void** result) {
 
-	hermes::vm::ThreadsafeFunction* f = hermes::vm::ThreadsafeFunction::asReference(func);
+	if (result == nullptr || func == nullptr || env == nullptr) {
+		return napi_invalid_arg;
+	}
+
+	hermes::napi::ThreadsafeFunction* f = hermes::napi::ThreadsafeFunction::asReference(func);
 
 	*result = f->getContext();
 
@@ -7654,9 +7733,14 @@ napi_call_threadsafe_function(
 	void* data,
 	napi_threadsafe_function_call_mode is_blocking) {
 
-	hermes::vm::ThreadsafeFunction* f = hermes::vm::ThreadsafeFunction::asReference(func);
 
-	return f->callFunction(func, data, is_blocking)
+	if (func == nullptr) {
+		return napi_invalid_arg;
+	}
+
+	hermes::napi::ThreadsafeFunction* f = hermes::napi::ThreadsafeFunction::asReference(func);
+
+	return f->callFunction(data, is_blocking);
 }
 
 NAPI_EXTERN napi_status NAPI_CDECL

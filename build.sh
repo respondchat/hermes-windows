@@ -1,13 +1,16 @@
 rm -rf destroot/
-rm -rf build_*/
+# rm -rf build_*/
 
-# delete all cmakefiles also in subdirectories
-rm -rf **/CMakeFiles
+export DEBUG=true
+
+# rm -rf **/CMakeFiles
 
 ./utils/build-ios-framework.sh
 mkdir -p archive
 cp -r destroot/ archive/destroot
 tar -czvf hermes-ios-release.tar.gz archive
+cp hermes-ios-release.tar.gz ../../app/client/ios
+cd ../../app/client/ios && ./install.sh
 
 # napi_create_async_work
 # napi_delete_async_work
